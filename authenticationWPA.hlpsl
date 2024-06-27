@@ -1,0 +1,113 @@
+%% PROTOCOL: WPA2 Wifi security protocol authentication request response and 4 way handshake.
+%% PURPOSE:
+%% We want to model the security capabilities of the WPA2 model for which 
+%% we need to use a relevant analysis software. Here, the protocol is 
+%% modelled on AVISPA Tool. On performing the analysis, we see that
+%% there is no attack possible and the protocol is safe.
+%% However, we know now that there is a KRACK Attack possible against the protocol.
+%% THe purpose of this project is to come up with a patch to the protocol and hence
+%% the AVISPA tool is not sufficient to model such behaviour according to our findings.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 	
+%%HLPSL:
+
+role authenticator(A,S:agent,
+	   PMK: text,	
+	   KDF: hash_func,
+	   Snd,Rcv:channel(dy)) 
+played_by A
+def=
+
+  local State : nat,
+  	AuthReq, AuthResp, ReAuthReq, ReAuthResp, ReplayCounter, ReplayCounterplus1, ANonce, SNonce,PTK,GTK : text
+	
+  const authenticator_supplicant_gtk,sec_gtk : protocol_id
+
+  init State:=1
+
+  transition
+  	1. State=1 /\ Rcv(AuthReq') =|>
+  	   State':=3 /\ AuthResp' := new() /\ Snd(AuthResp')
+	1. State=3 /\ Rcv(ReAuthReq') =|>
+	   State' := 5 /\ ReAuthResp' :=new() /\ ReplayCounter' := new() /\ ANonce' := new() /\ Snd(ReAuthResp'.ReplayCounter'.ANonce')
+	2. State=5 /\ Rcv(ReplayCounter'.SNonce') =|> 
+	   State':= 7 /\ PTK':= KDF(PMK.ANonce.SNonce') /\ ReplayCounterplus1' := new() /\ GTK':= new() /\ Snd(ReplayCounterplus1'.{GTK'}_PTK') /\
+	   secret(GTK',sec_gtk,{A,S}) /\
+	   witness(A,S,authenticator_supplicant_gtk,GTK')
+	   
+	
+end role
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+	
+role supplicant(S,A:agent, 
+	 PMK: text,
+         KDF: hash_func,
+         Snd,Rcv:channel(dy)) 
+played_by S
+def=
+
+  local State : nat, 
+	AuthReq, AuthResp, ReAuthReq, ReAuthResp, ReplayCounter, ReplayCounterplus1, SNonce, ANonce ,PTK,GTK : text
+	
+  const authenticator_supplicant_gtk,sec_gtk : protocol_id
+	
+  init State:=0
+  
+  transition
+  	1. State=0 /\ Rcv(start) =|>
+  	   State':=2 /\ AuthReq' := new() /\ Snd(AuthReq')
+  	2. State=2 /\ Rcv(AuthResp') =|>
+  	   State':=4 /\ ReAuthReq' := new() /\ Snd(ReAuthReq')
+	1. State=4 /\ Rcv(ReAuthResp'.ReplayCounter'.ANonce') =|>
+   	   State':= 6 /\ SNonce':=new() /\ PTK':= KDF(PMK.ANonce'.SNonce') /\ Snd(ReplayCounter'.SNonce') 
+   	2. State= 6 /\ Rcv(ReplayCounterplus1'.{GTK'}_PTK') =|>
+   	   State':= 7 /\ request(S,A,authenticator_supplicant_gtk,GTK')
+
+end role
+	
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	
+
+role session(A,S:agent,
+	      KDF: hash_func, 
+	      PMK:text) 
+def=
+
+  local SND_A,RCV_A,SND_B,RCV_B:channel(dy) 
+  
+  composition
+	authenticator(A,S,PMK,KDF,SND_A,RCV_A) 
+     /\ supplicant(S,A,PMK,KDF,SND_B,RCV_B)
+
+end role
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+	
+role environment() 
+def=
+
+  const authenticator_supplicant_gtk,sec_gtk : protocol_id,
+  	a,s : agent, 
+	pmk : text,
+	gtk : protocol_id,
+	kdf : hash_func
+	
+  intruder_knowledge = {a,s,pmk}
+  
+  composition
+     session(a,s,kdf,pmk)
+ 
+  
+end role
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+goal
+  
+  authentication_on authenticator_supplicant_gtk
+  secrecy_of sec_gtk
+ 
+end goal
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+environment()

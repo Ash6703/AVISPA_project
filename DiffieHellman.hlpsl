@@ -1,0 +1,96 @@
+role controller(C,IO:agent, 
+	   G:text, 
+	   F: hash_func,
+	   Snd,Rcv:channel(dy)) 
+played_by C
+def=
+
+  local State : nat, 
+	Na,Nc,Ni,SSID,PassWD,Token : text, 
+	X,K : message
+	
+	
+  init State:=0
+
+  transition
+	1. State=0 /\ Rcv(start) =|>
+	   State':= 2 /\ Na':=new() /\ Snd(exp(G,Na'))
+	2. State=2 /\ Rcv(X') =|>
+	   State':=4 /\ K':=exp(X',Na) /\ Nc':= new() /\ Snd({C.Nc'}_K')  
+	   /\ secret(K',k,{C,IO})
+	3. State=4 /\ Rcv({IO.Nc.Ni'}_K) =|>
+	   State':=6 /\ SSID':=new() /\ PassWD':=new() /\ Token':=new() 
+	   /\ Snd({SSID'.PassWD'.Token'.Nc.F(SSID'.PassWD'.Token'.Nc)}_K)
+	
+end role
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+	
+role iotap(IO,C:agent, 
+         G:text, 
+         F: hash_func,
+         Snd,Rcv:channel(dy)) 
+played_by IO
+def=
+
+  local State:nat, 
+	Y,K:message, 
+	Nb,Nc,Ni,SSID,PassWD,Token:text
+	
+  init State:=1
+  
+  transition
+	1. State=1 /\ Rcv(Y') =|>
+   	   State':=3 /\ Nb':=new() /\ K':=exp(Y',Nb') /\ Snd(exp(G,Nb'))  
+	2. State=3 /\ Rcv({C.Nc'}_K) =|>
+   	   State':=5 /\ Ni':=new() /\ Snd({IO.Nc.Ni'}_K)
+   	3. State=5 /\ Rcv({SSID'.PassWD'.Token'.Nc.F(SSID'.PassWD'.Token'.Nc)}_K) =|>
+   	   State':=7
+
+end role
+	
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%	
+
+role session (C,IO:agent,
+	      F: hash_func, 
+	      G:text) 
+def=
+
+  local SND_A,RCV_A,SND_B,RCV_B:channel(dy) 
+  
+  composition
+	controller(C,IO,G,F,SND_A,RCV_A) 
+     /\ iotap(IO,C,G,F,SND_B,RCV_B)
+
+end role
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+	
+role environment() 
+def=
+
+  const c,io : agent, 
+	g : text,
+	k : protocol_id,
+	f : hash_func
+	
+  intruder_knowledge = {c,io,g,f}
+  
+  composition
+     session(c,io,f,g)
+  /\ session(c,i,f,g)
+ 
+  
+end role
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+goal
+  
+  secrecy_of k
+ 
+end goal
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+environment()
